@@ -1,11 +1,8 @@
-/*---------------------------------------------------------
- * Copyright (C) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
-import cp = require("child_process");
 import os = require("os");
 import vscode = require("vscode");
-import { IFeature, LanguageClient } from "../feature";
 import { SessionManager } from "../session";
 import Settings = require("../settings");
 
@@ -27,10 +24,9 @@ const extensions =
             return 0;
         });
 
-export class GenerateBugReportFeature implements IFeature {
+export class GenerateBugReportFeature implements vscode.Disposable {
 
     private command: vscode.Disposable;
-    private powerShellProcess: cp.ChildProcess;
 
     constructor(private sessionManager: SessionManager) {
         this.command = vscode.commands.registerCommand("PowerShell.GenerateBugReport", () => {
@@ -43,7 +39,7 @@ I am experiencing a problem with...
 Attached Logs
 =====
 
-Follow the instructions in the [README](https://github.com/PowerShell/vscode-powershell#reporting-problems) about
+Follow the instructions in the [README](https://github.com/PowerShell/vscode-powershell/blob/master/docs/troubleshooting.md) about
 capturing and sending logs.
 
 Environment Information
@@ -81,10 +77,6 @@ ${this.generateExtensionTable(extensions)}
 
     public dispose() {
         this.command.dispose();
-    }
-
-    public setLanguageClient(languageclient: LanguageClient) {
-        // Eliminate tslint warning.
     }
 
     private generateExtensionTable(installedExtensions): string {

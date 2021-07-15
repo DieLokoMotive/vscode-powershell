@@ -1,6 +1,5 @@
-/*---------------------------------------------------------
- * Copyright (C) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
 "use strict";
 
@@ -18,9 +17,10 @@ enum PipelineIndentationStyle {
     IncreaseIndentationForFirstPipeline,
     IncreaseIndentationAfterEveryPipeline,
     NoIndentation,
+    None,
 }
 
-export enum HelpCompletion {
+export enum CommentType {
     Disabled = "Disabled",
     BlockComment = "BlockComment",
     LineComment = "LineComment",
@@ -51,10 +51,13 @@ export interface ICodeFormattingSettings {
     whitespaceBeforeOpenParen: boolean;
     whitespaceAroundOperator: boolean;
     whitespaceAfterSeparator: boolean;
-    whitespaceInsideBrace: true;
-    whitespaceAroundPipe: true;
+    whitespaceBetweenParameters: boolean;
+    whitespaceInsideBrace: boolean;
+    addWhitespaceAroundPipe: boolean;
+    trimWhitespaceAroundPipe: boolean;
     ignoreOneLineBlock: boolean;
     alignPropertyValuePairs: boolean;
+    useConstantStrings: boolean;
     useCorrectCasing: boolean;
 }
 
@@ -72,6 +75,7 @@ export interface IDeveloperSettings {
     bundledModulesPath?: string;
     editorServicesLogLevel?: string;
     editorServicesWaitForDebugger?: boolean;
+    waitForSessionFileTimeoutSeconds?: number;
 }
 
 export interface ISettings {
@@ -80,6 +84,7 @@ export interface ISettings {
     // This setting is no longer used but is here to assist in cleaning up the users settings.
     powerShellExePath?: string;
     promptToUpdatePowerShell?: boolean;
+    promptToUpdatePackageManagement?: boolean;
     bundledModulesPath?: string;
     startAsLoginShell?: IStartAsLoginShellSettings;
     startAutomatically?: boolean;
@@ -94,6 +99,10 @@ export interface ISettings {
     integratedConsole?: IIntegratedConsoleSettings;
     bugReporting?: IBugReportingSettings;
     sideBar?: ISideBarSettings;
+    pester?: IPesterSettings;
+    buttons?: IButtonSettings;
+    cwd?: string;
+    notebooks?: INotebooksSettings;
 }
 
 export interface IStartAsLoginShellSettings {
@@ -111,6 +120,21 @@ export interface IIntegratedConsoleSettings {
 
 export interface ISideBarSettings {
     CommandExplorerVisibility?: boolean;
+}
+
+export interface IPesterSettings {
+    useLegacyCodeLens?: boolean;
+    outputVerbosity?: string;
+    debugOutputVerbosity?: string;
+}
+
+export interface IButtonSettings {
+    showRunButtons?: boolean;
+    showPanelMovementButtons?: boolean;
+}
+
+export interface INotebooksSettings {
+    saveMarkdownCellsAs?: CommentType;
 }
 
 export function load(): ISettings {
@@ -136,6 +160,7 @@ export function load(): ISettings {
         bundledModulesPath: "../../../PowerShellEditorServices/module",
         editorServicesLogLevel: "Normal",
         editorServicesWaitForDebugger: false,
+        waitForSessionFileTimeoutSeconds: 240,
     };
 
     const defaultCodeFoldingSettings: ICodeFoldingSettings = {
@@ -154,10 +179,13 @@ export function load(): ISettings {
         whitespaceBeforeOpenParen: true,
         whitespaceAroundOperator: true,
         whitespaceAfterSeparator: true,
+        whitespaceBetweenParameters: false,
         whitespaceInsideBrace: true,
-        whitespaceAroundPipe: true,
+        addWhitespaceAroundPipe: true,
+        trimWhitespaceAroundPipe: false,
         ignoreOneLineBlock: true,
         alignPropertyValuePairs: true,
+        useConstantStrings: false,
         useCorrectCasing: false,
     };
 
@@ -177,6 +205,21 @@ export function load(): ISettings {
         CommandExplorerVisibility: true,
     };
 
+    const defaultButtonSettings: IButtonSettings = {
+        showRunButtons: true,
+        showPanelMovementButtons: false
+    };
+
+    const defaultPesterSettings: IPesterSettings = {
+        useLegacyCodeLens: true,
+        outputVerbosity: "FromPreference",
+        debugOutputVerbosity: "Diagnostic",
+    };
+
+    const defaultNotebooksSettings: INotebooksSettings = {
+        saveMarkdownCellsAs: CommentType.BlockComment,
+    };
+
     return {
         startAutomatically:
             configuration.get<boolean>("startAutomatically", true),
@@ -188,6 +231,8 @@ export function load(): ISettings {
             configuration.get<string>("powerShellExePath", undefined),
         promptToUpdatePowerShell:
             configuration.get<boolean>("promptToUpdatePowerShell", true),
+        promptToUpdatePackageManagement:
+            configuration.get<boolean>("promptToUpdatePackageManagement", true),
         bundledModulesPath:
             "../../modules",
         useX86Host:
@@ -195,7 +240,7 @@ export function load(): ISettings {
         enableProfileLoading:
             configuration.get<boolean>("enableProfileLoading", false),
         helpCompletion:
-            configuration.get<string>("helpCompletion", HelpCompletion.BlockComment),
+            configuration.get<string>("helpCompletion", CommentType.BlockComment),
         scriptAnalysis:
             configuration.get<IScriptAnalysisSettings>("scriptAnalysis", defaultScriptAnalysisSettings),
         debugging:
@@ -212,6 +257,12 @@ export function load(): ISettings {
             configuration.get<IBugReportingSettings>("bugReporting", defaultBugReportingSettings),
         sideBar:
             configuration.get<ISideBarSettings>("sideBar", defaultSideBarSettings),
+        pester:
+            configuration.get<IPesterSettings>("pester", defaultPesterSettings),
+        buttons:
+            configuration.get<IButtonSettings>("buttons", defaultButtonSettings),
+        notebooks:
+            configuration.get<INotebooksSettings>("notebooks", defaultNotebooksSettings),
         startAsLoginShell:
             // tslint:disable-next-line
             // We follow the same convention as VS Code - https://github.com/microsoft/vscode/blob/ff00badd955d6cfcb8eab5f25f3edc86b762f49f/src/vs/workbench/contrib/terminal/browser/terminal.contribution.ts#L105-L107
@@ -219,15 +270,37 @@ export function load(): ISettings {
             //   is the reason terminals on macOS typically run login shells by default which set up
             //   the environment. See http://unix.stackexchange.com/a/119675/115410"
             configuration.get<IStartAsLoginShellSettings>("startAsLoginShell", defaultStartAsLoginShellSettings),
+        cwd:
+            configuration.get<string>("cwd", null),
     };
 }
 
-export async function change(settingName: string, newValue: any, global: boolean = false): Promise<void> {
-    const configuration: vscode.WorkspaceConfiguration =
-        vscode.workspace.getConfiguration(
-            utils.PowerShellLanguageId);
+// Get the ConfigurationTarget (read: scope) of where the *effective* setting value comes from
+export async function getEffectiveConfigurationTarget(settingName: string): Promise<vscode.ConfigurationTarget> {
+    const configuration = vscode.workspace.getConfiguration(utils.PowerShellLanguageId);
 
-    await configuration.update(settingName, newValue, global);
+    const detail = configuration.inspect(settingName);
+    let configurationTarget = null;
+    if (typeof detail.workspaceFolderValue !== "undefined") {
+        configurationTarget = vscode.ConfigurationTarget.WorkspaceFolder;
+    }
+    else if (typeof detail.workspaceValue !== "undefined") {
+        configurationTarget = vscode.ConfigurationTarget.Workspace;
+    }
+    else if (typeof detail.globalValue !== "undefined") {
+        configurationTarget = vscode.ConfigurationTarget.Global;
+    }
+    return configurationTarget;
+}
+
+export async function change(
+    settingName: string,
+    newValue: any,
+    configurationTarget?: vscode.ConfigurationTarget | boolean): Promise<void> {
+
+    const configuration = vscode.workspace.getConfiguration(utils.PowerShellLanguageId);
+
+    await configuration.update(settingName, newValue, configurationTarget);
 }
 
 function getWorkspaceSettingsWithDefaults<TSettings>(

@@ -1,6 +1,5 @@
-/*---------------------------------------------------------
- * Copyright (C) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
 import cp = require("child_process");
 import fs = require("fs");
@@ -16,6 +15,10 @@ export class PowerShellProcess {
     public static escapeSingleQuotes(pspath: string): string {
         return pspath.replace(new RegExp("'", "g"), "''");
     }
+
+    // This is used to warn the user that the extension is taking longer than expected to startup.
+    // After the 15th try we've hit 30 seconds and should warn.
+    private static warnUserThreshold = 15;
 
     public onExited: vscode.Event<void>;
     private onExitedEmitter = new vscode.EventEmitter<void>();
@@ -108,6 +111,7 @@ export class PowerShellProcess {
                 shellPath: this.exePath,
                 shellArgs: powerShellArgs,
                 hideFromUser: !this.sessionSettings.integratedConsole.showOnStartup,
+                cwd: this.sessionSettings.cwd
             });
 
         const pwshName = path.basename(this.exePath);
@@ -174,20 +178,32 @@ export class PowerShellProcess {
         return true;
     }
 
-    private waitForSessionFile(): Promise<utils.IEditorServicesSessionDetails> {
-        return new Promise((resolve, reject) => {
-            utils.waitForSessionFile(this.sessionFilePath, (sessionDetails, error) => {
-                utils.deleteSessionFile(this.sessionFilePath);
+    private async waitForSessionFile(): Promise<utils.IEditorServicesSessionDetails> {
+        // Determine how many tries by dividing by 2000 thus checking every 2 seconds.
+        const numOfTries = this.sessionSettings.developer.waitForSessionFileTimeoutSeconds / 2;
+        const warnAt = numOfTries - PowerShellProcess.warnUserThreshold;
 
-                if (error) {
-                    this.log.write("Error occurred retrieving session file");
-                    return reject(error);
-                }
-
+        // Check every 2 seconds
+        for (let i = numOfTries; i > 0; i--) {
+            if (utils.checkIfFileExists(this.sessionFilePath)) {
                 this.log.write("Session file found");
-                resolve(sessionDetails);
-            });
-        });
+                const sessionDetails = utils.readSessionFile(this.sessionFilePath);
+                utils.deleteSessionFile(this.sessionFilePath);
+                return sessionDetails;
+            }
+
+            if (warnAt === i) {
+                vscode.window.showWarningMessage(`Loading the PowerShell extension is taking longer than expected.
+    If you're using privilege enforcement software, this can affect start up performance.`);
+            }
+
+            // Wait a bit and try again
+            await utils.sleep(2000);
+        }
+
+        const err = "Timed out waiting for session file to appear.";
+        this.log.write(err);
+        throw new Error(err);
     }
 
     private onTerminalClose(terminal: vscode.Terminal) {

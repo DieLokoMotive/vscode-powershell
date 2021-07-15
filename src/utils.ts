@@ -1,6 +1,5 @@
-/*---------------------------------------------------------
- * Copyright (C) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------*/
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
 "use strict";
 
@@ -45,7 +44,6 @@ export interface IEditorServicesSessionDetails {
 }
 
 export type IReadSessionFileCallback = (details: IEditorServicesSessionDetails) => void;
-export type IWaitForSessionFileCallback = (details: IEditorServicesSessionDetails, error: string) => void;
 
 const sessionsFolder = path.resolve(__dirname, "..", "..", "sessions/");
 const sessionFilePathPrefix = path.resolve(sessionsFolder, "PSES-VSCode-" + process.env.VSCODE_PID);
@@ -69,25 +67,6 @@ export function writeSessionFile(sessionFilePath: string, sessionDetails: IEdito
     writeStream.close();
 }
 
-export function waitForSessionFile(sessionFilePath: string, callback: IWaitForSessionFileCallback) {
-
-    function innerTryFunc(remainingTries: number, delayMilliseconds: number) {
-        if (remainingTries === 0) {
-            callback(undefined, "Timed out waiting for session file to appear.");
-        } else if (!checkIfFileExists(sessionFilePath)) {
-            // Wait a bit and try again
-            setTimeout(
-                () => { innerTryFunc(remainingTries - 1, delayMilliseconds); },
-                delayMilliseconds);
-        } else {
-            // Session file was found, load and return it
-            callback(readSessionFile(sessionFilePath), undefined);
-        }
-    }
-
-    // Try once every 2 seconds, 60 times - making two full minutes
-    innerTryFunc(60, 2000);
-}
 
 export function readSessionFile(sessionFilePath: string): IEditorServicesSessionDetails {
     const fileContents = fs.readFileSync(sessionFilePath, "utf-8");
@@ -114,6 +93,10 @@ export function checkIfFileExists(filePath: string): boolean {
 export function getTimestampString() {
     const time = new Date();
     return `[${time.getHours()}:${time.getMinutes()}:${time.getSeconds()}]`;
+}
+
+export function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export const isMacOS: boolean = process.platform === "darwin";
